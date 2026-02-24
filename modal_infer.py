@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import io
 import logging
+import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-import subprocess
-from typing import Dict, List, Optional, Sequence, Tuple
 from uuid import uuid4
+
 
 def ensure_utf8_stdio() -> None:
     for name in ("stdout", "stderr"):
@@ -31,6 +33,7 @@ def ensure_utf8_stdio() -> None:
         except Exception:
             pass
 
+
 ensure_utf8_stdio()
 
 try:
@@ -42,7 +45,7 @@ except ImportError:  # pragma: no cover
 
 try:
     import modal
-except ImportError as exc:  # pragma: no cover
+except ImportError:  # pragma: no cover
     print("未检测到 modal 包，请先运行 `python -m pip install modal questionary`。")
     raise
 
@@ -84,6 +87,7 @@ DEFAULT_GPU_CHOICES = [
     "B200",
 ]
 
+
 def resolve_resource_path(filename: str) -> Path:
     base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
     return base_dir / filename
@@ -93,8 +97,8 @@ def resolve_resource_path(filename: str) -> Path:
 class ModelProfile:
     key: str
     label: str
-    hf_repo: Optional[str]
-    target_dir: Optional[str]
+    hf_repo: str | None
+    target_dir: str | None
     description: str
 
 
@@ -104,10 +108,10 @@ class UserSelection:
     gpu_choice: str
     input_path: Path
     model_profile: ModelProfile
-    custom_repo: Optional[str]
-    custom_target_dir: Optional[str]
+    custom_repo: str | None
+    custom_target_dir: str | None
     enable_batching: bool
-    batch_size: Optional[int]
+    batch_size: int | None
     max_batch_size: int
     timeout_minutes: int
 
@@ -117,17 +121,17 @@ class UploadManifest:
     session_id: str
     source_type: str  # file or directory
     local_source: Path
-    remote_inputs_rel: List[Path]
+    remote_inputs_rel: list[Path]
     remote_output_rel: Path
     local_output_dir: Path
     remote_logs_rel: Path
-    original_filename: Optional[str] = None  # 原始文件名（用于恢复空格）
+    original_filename: str | None = None  # 原始文件名（用于恢复空格）
 
 
 @dataclass
 class ScanResult:
-    audio_files: List[Path]
-    mp4_files: List[Path]
+    audio_files: list[Path]
+    mp4_files: list[Path]
 
 
 class NoAudioFilesError(Exception):
@@ -160,7 +164,7 @@ def container_to_volume_path(container_path: str) -> str:
     return rel
 
 
-MODEL_PRESETS: Dict[str, ModelProfile] = {
+MODEL_PRESETS: dict[str, ModelProfile] = {
     "chickenrice": ModelProfile(
         key="chickenrice",
         label="海南鸡（日文转中文优化）",
@@ -237,43 +241,31 @@ def ask_selection() -> UserSelection:
         custom_repo = questionary.text("输入 HuggingFace repo（例如 user/repo）").ask()
         if not custom_repo:
             raise KeyboardInterrupt
-        custom_target_dir = questionary.text(
-            "输入 models 子目录名称（英文/数字）", default="custom-model"
-        ).ask()
+        custom_target_dir = questionary.text("输入 models 子目录名称（英文/数字）", default="custom-model").ask()
         if not custom_target_dir:
             raise KeyboardInterrupt
 
-    input_path_str = questionary.path(
-        "拖入或输入待处理的本地文件/文件夹路径："
-    ).ask()
+    input_path_str = questionary.path("拖入或输入待处理的本地文件/文件夹路径：").ask()
     if not input_path_str:
         raise KeyboardInterrupt
     input_path = Path(input_path_str).expanduser().resolve()
     if not input_path.exists():
         raise FileNotFoundError(f"路径不存在：{input_path}")
 
-    enable_batching = questionary.confirm(
-        "启用批处理以加速（需要更高显存）？", default=False
-    ).ask()
+    enable_batching = questionary.confirm("启用批处理以加速（需要更高显存）？", default=False).ask()
     if enable_batching is None:
         raise KeyboardInterrupt
 
     batch_size = None
     max_batch_size = 8
     if enable_batching:
-        batch_size_str = questionary.text(
-            "指定批次大小（留空自动探测）", default=""
-        ).ask()
+        batch_size_str = questionary.text("指定批次大小（留空自动探测）", default="").ask()
         if batch_size_str:
             batch_size = int(batch_size_str)
-        max_batch_size_str = questionary.text(
-            "最大自动批次大小", default="8"
-        ).ask()
+        max_batch_size_str = questionary.text("最大自动批次大小", default="8").ask()
         max_batch_size = int(max_batch_size_str or "8")
 
-    timeout_minutes = int(
-        questionary.text("任务超时时间（分钟）", default="60").ask() or "60"
-    )
+    timeout_minutes = int(questionary.text("任务超时时间（分钟）", default="60").ask() or "60")
 
     return UserSelection(
         run_mode="once",
@@ -291,8 +283,8 @@ def ask_selection() -> UserSelection:
 
 def scan_audio_files(path: Path) -> ScanResult:
     """扫描目录，返回音频文件和需要转换的 mp4 文件"""
-    audio_files: List[Path] = []
-    mp4_files: List[Path] = []
+    audio_files: list[Path] = []
+    mp4_files: list[Path] = []
     for file in path.rglob("*"):
         if file.is_file():
             suffix = file.suffix.lower()
@@ -310,7 +302,7 @@ def validate_audio_path(path: Path) -> ScanResult:
         if suffix in VIDEO_NEED_CONVERT:
             raise ValueError(
                 f"文件 {path} 是 mp4 格式，请先使用 ffmpeg 转换为 mp3：\n"
-                f"  ffmpeg -i \"{path}\" -vn -acodec libmp3lame \"{path.with_suffix('.mp3')}\""
+                f'  ffmpeg -i "{path}" -vn -acodec libmp3lame "{path.with_suffix(".mp3")}"'
             )
         if suffix not in AUDIO_SUFFIXES:
             raise ValueError(f"文件 {path} 不属于支持的音/视频格式。")
@@ -323,7 +315,7 @@ def validate_audio_path(path: Path) -> ScanResult:
             for mp4_file in scan_result.mp4_files:
                 logging.warning("  - %s", mp4_file)
             logging.warning("请使用 ffmpeg 转换为 mp3 后再处理，例如：")
-            logging.warning("  ffmpeg -i \"input.mp4\" -vn -acodec libmp3lame \"output.mp3\"")
+            logging.warning('  ffmpeg -i "input.mp4" -vn -acodec libmp3lame "output.mp3"')
             logging.warning("=" * 60)
         if not scan_result.audio_files:
             raise NoAudioFilesError(f"输入的文件夹内没有音频文件：{path}")
@@ -336,7 +328,7 @@ def upload_single_file(
     volume: modal.Volume,
     selection: UserSelection,
     audio_file: Path,
-    base_dir: Optional[Path] = None,
+    base_dir: Path | None = None,
 ) -> UploadManifest:
     """上传单个音频文件到 Modal Volume。
 
@@ -374,7 +366,7 @@ def upload_single_file(
     )
 
 
-def build_job_payload(selection: UserSelection, manifest: UploadManifest) -> Dict:
+def build_job_payload(selection: UserSelection, manifest: UploadManifest) -> dict:
     model_profile = selection.model_profile
     hf_repo = selection.custom_repo if model_profile.key == "custom" else model_profile.hf_repo
     target_dir = (
@@ -426,8 +418,8 @@ def run_remote_pipeline(
     volume: modal.Volume,
     selection: UserSelection,
     manifest: UploadManifest,
-    payload: Dict,
-) -> Dict:
+    payload: dict,
+) -> dict:
     logging.info("=== 开始构建 Modal 镜像 ===")
     image = build_modal_image()
     logging.info("✓ 镜像构建完成")
@@ -442,7 +434,7 @@ def run_remote_pipeline(
         volumes={str(REMOTE_MOUNT): volume},
         serialized=True,
     )
-    def modal_pipeline(job_payload: Dict) -> Dict:
+    def modal_pipeline(job_payload: dict) -> dict:
         return _remote_pipeline(job_payload)
 
     logging.info("=== 开始远程执行 ===")
@@ -459,8 +451,8 @@ def run_remote_pipeline(
 def process_directory_files(
     volume: modal.Volume,
     selection: UserSelection,
-    audio_files: List[Path],
-) -> Tuple[int, int]:
+    audio_files: list[Path],
+) -> tuple[int, int]:
     """处理文件夹中的所有音频文件，容器复用。
 
     Args:
@@ -488,7 +480,7 @@ def process_directory_files(
         serialized=True,
         min_containers=1,  # 保持容器预热，复用容器
     )
-    def modal_pipeline(job_payload: Dict) -> Dict:
+    def modal_pipeline(job_payload: dict) -> dict:
         return _remote_pipeline(job_payload)
 
     success_count = 0
@@ -526,7 +518,7 @@ def process_directory_files(
 
 def download_outputs(
     manifest: UploadManifest,
-    result: Dict,
+    result: dict,
 ) -> None:
     """从远程结果中提取文件内容并写入本地"""
     import base64
@@ -560,15 +552,18 @@ def download_outputs(
         logging.info("写入日志: %s", log_path)
 
 
-def summarize(manifest: UploadManifest, result: Dict) -> None:
+def summarize(manifest: UploadManifest, result: dict) -> None:
     logging.info("=== 运行完成 ===")
     logging.info("Session: %s", manifest.session_id)
     logging.info("源路径: %s", manifest.local_source)
-    logging.info("输出路径: %s", manifest.local_output_dir if manifest.source_type == "directory" else manifest.local_source.parent)
+    logging.info(
+        "输出路径: %s",
+        manifest.local_output_dir if manifest.source_type == "directory" else manifest.local_source.parent,
+    )
     created_files = result.get("created_files", {})
     if created_files:
         logging.info("新生成文件：")
-        for filename in created_files.keys():
+        for filename in created_files:
             logging.info("  %s", filename)
 
 
@@ -585,10 +580,8 @@ def parse_args() -> argparse.Namespace:
 def prompt_exit(enabled: bool) -> None:
     if not enabled:
         return
-    try:
+    with contextlib.suppress(EOFError):
         input("输入任意键退出...")
-    except EOFError:
-        pass
 
 
 def main() -> int:
@@ -605,9 +598,7 @@ def main() -> int:
         if selection.input_path.is_dir():
             # 文件夹模式：逐个处理文件，容器复用
             logging.info("检测到文件夹输入，将逐个处理 %d 个音频文件", len(scan_result.audio_files))
-            success_count, fail_count = process_directory_files(
-                volume, selection, scan_result.audio_files
-            )
+            success_count, fail_count = process_directory_files(volume, selection, scan_result.audio_files)
             logging.info("=" * 60)
             logging.info("=== 批量处理完成 ===")
             logging.info("成功: %d, 失败: %d", success_count, fail_count)
@@ -632,21 +623,21 @@ def main() -> int:
         logging.error("日志见：%s", log_path)
         exit_code = 1
 
-
     prompt_exit(not args.non_interactive)
     return exit_code
 
-def _remote_pipeline(job: Dict) -> Dict:
-    import subprocess
-    from pathlib import Path
+
+def _remote_pipeline(job: dict) -> dict:
     import os
+    from pathlib import Path
 
     # 强制重新加载 Volume，确保看到最新上传的文件
     from modal import Volume
+
     volume = Volume.from_name("Faster_Whisper")
     volume.reload()
 
-    def run(cmd: Sequence[str], cwd: Optional[str] = None, env: Optional[dict] = None) -> None:
+    def run(cmd: Sequence[str], cwd: str | None = None, env: dict | None = None) -> None:
         print(" ".join(cmd), flush=True)
         subprocess.run(cmd, check=True, cwd=cwd, env=env)
 
@@ -704,10 +695,7 @@ def _remote_pipeline(job: Dict) -> Dict:
                     files.add(str(f))
         return files
 
-    before = {
-        target["remote_dir"]: snapshot(target["remote_dir"])
-        for target in job["output_targets"]
-    }
+    before = {target["remote_dir"]: snapshot(target["remote_dir"]) for target in job["output_targets"]}
 
     output_dir = Path(job["remote_output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -715,12 +703,18 @@ def _remote_pipeline(job: Dict) -> Dict:
     cmd = [
         "python",
         str(repo_dir / "infer.py"),
-        "--audio_suffixes", "mp3,wav,flac,m4a,aac,ogg,wma,mp4,mkv,avi,mov,webm,flv,wmv",
-        "--device","cuda",
-        "--model_name_or_path",str(model_path),
-        "--sub_formats",job["sub_formats"],
-        "--log_level","INFO",
-        "--output_dir",str(output_dir),
+        "--audio_suffixes",
+        "mp3,wav,flac,m4a,aac,ogg,wma,mp4,mkv,avi,mov,webm,flv,wmv",
+        "--device",
+        "cuda",
+        "--model_name_or_path",
+        str(model_path),
+        "--sub_formats",
+        job["sub_formats"],
+        "--log_level",
+        "INFO",
+        "--output_dir",
+        str(output_dir),
     ]
     if job["enable_batching"]:
         cmd.append("--enable_batching")
@@ -732,6 +726,7 @@ def _remote_pipeline(job: Dict) -> Dict:
 
     # 在执行推理前，等待文件同步完成
     import time
+
     log("等待文件同步...")
     for input_path in job["remote_inputs"]:
         input_file = Path(input_path)
@@ -764,7 +759,7 @@ def _remote_pipeline(job: Dict) -> Dict:
         # 打印调试信息
         sessions_dir = mount_root / "sessions"
         log(f"推理命令执行失败，错误码: {e.returncode}")
-        log(f"=== 调试信息 ===")
+        log("=== 调试信息 ===")
 
         # 统计 sessions 目录下的文件夹数量
         if sessions_dir.exists():
@@ -778,14 +773,14 @@ def _remote_pipeline(job: Dict) -> Dict:
             input_dir = Path(input_path).parent
             log(f"待处理文件目录: {input_dir}")
             if input_dir.exists():
-                log(f"目录内容:")
+                log("目录内容:")
                 for item in input_dir.iterdir():
                     item_type = "目录" if item.is_dir() else "文件"
                     log(f"  [{item_type}] {item.name}")
             else:
                 log(f"目录不存在: {input_dir}")
 
-        log(f"=== 调试信息结束 ===")
+        log("=== 调试信息结束 ===")
         raise
 
     def to_volume_path(path_str: str) -> str:
@@ -793,16 +788,13 @@ def _remote_pipeline(job: Dict) -> Dict:
 
     # 收集生成的文件内容（直接返回，避免 volume 同步问题）
     import base64
+
     created_files = {}  # {filename: base64_content}
     for target in job["output_targets"]:
         remote_dir = target["remote_dir"]
         after = snapshot(remote_dir)
         prev = before.get(remote_dir, set())
-        new_files = sorted(
-            file
-            for file in after - prev
-            if Path(file).suffix.lower() in SUB_SUFFIXES
-        )
+        new_files = sorted(file for file in after - prev if Path(file).suffix.lower() in SUB_SUFFIXES)
         for file_path in new_files:
             file_path = Path(file_path)
             if file_path.exists():

@@ -3,13 +3,13 @@ faster_whisper_transwithai_chickenrice - Custom VAD injection for faster_whisper
 """
 
 from .injection import (
-    inject_vad,
-    uninject_vad,
     VadInjectionContext,
-    with_vad_injection,
-    auto_inject_vad,
     VadOptionsCompat,
+    auto_inject_vad,
+    inject_vad,
     is_injection_active,
+    uninject_vad,
+    with_vad_injection,
 )
 from .vad_manager import VadModelManager, WhisperVadModel
 

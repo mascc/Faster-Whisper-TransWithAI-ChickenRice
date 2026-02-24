@@ -5,8 +5,8 @@ Includes CUDA runtime libraries for GPU acceleration
 """
 
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
 
 # Import the download_models functions
@@ -15,7 +15,7 @@ try:
         download_vad_model,
         download_whisper_base_for_feature_extractor,
         verify_vad_model,
-        verify_whisper_base_feature_extractor
+        verify_whisper_base_feature_extractor,
     )
 except ImportError:
     print("Warning: download_models.py not found, skipping model download")
@@ -24,12 +24,13 @@ except ImportError:
     verify_vad_model = None
     verify_whisper_base_feature_extractor = None
 
+
 def find_cuda_libs():
     """Find CUDA libraries needed for CTranslate2 in the conda environment"""
     cuda_libs = []
 
     # For conda environments, libraries are in the conda env root
-    conda_prefix = os.environ.get('CONDA_PREFIX')
+    conda_prefix = os.environ.get("CONDA_PREFIX")
     if conda_prefix:
         conda_path = Path(conda_prefix)
     else:
@@ -41,8 +42,8 @@ def find_cuda_libs():
     # Check Library/bin for Windows conda environments
     lib_dirs = [
         conda_path / "Library" / "bin",  # Windows conda location
-        conda_path / "bin",               # Alternative location
-        conda_path / "lib",               # Linux/Unix style (for reference)
+        conda_path / "bin",  # Alternative location
+        conda_path / "lib",  # Linux/Unix style (for reference)
     ]
 
     # CUDA and cuDNN library patterns for Windows
@@ -129,6 +130,7 @@ def find_cuda_libs():
 
     return cuda_libs
 
+
 def download_models_if_needed():
     """Download models if they don't exist"""
     if verify_vad_model is None:
@@ -147,19 +149,18 @@ def download_models_if_needed():
         return True
 
     print("\n⬇ Downloading missing models...")
-    success = True
 
     # Download VAD model if needed
-    if not vad_ok and download_vad_model:
-        if not download_vad_model():
-            print("❌ Failed to download VAD model")
-            success = False
+    if not vad_ok and download_vad_model and not download_vad_model():
+        print("❌ Failed to download VAD model")
 
     # Download whisper-base for feature extractor if needed
-    if not whisper_base_ok and download_whisper_base_for_feature_extractor:
-        if not download_whisper_base_for_feature_extractor():
-            print("❌ Failed to download whisper-base feature extractor")
-            success = False
+    if (
+        not whisper_base_ok
+        and download_whisper_base_for_feature_extractor
+        and not download_whisper_base_for_feature_extractor()
+    ):
+        print("❌ Failed to download whisper-base feature extractor")
 
     # Final verification
     final_vad_ok = verify_vad_model() if verify_vad_model else False
@@ -172,13 +173,14 @@ def download_models_if_needed():
         print("❌ Model download failed. Cannot continue without required models.")
         return False
 
+
 def build():
     """Main build function"""
     print("Starting Windows build with CUDA support...")
 
     # Check if we're in a virtual environment or conda environment
-    in_conda = os.environ.get('CONDA_PREFIX') is not None
-    in_venv = hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
+    in_conda = os.environ.get("CONDA_PREFIX") is not None
+    in_venv = hasattr(sys, "real_prefix") or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
 
     if in_conda:
         print(f"✓ Using conda environment: {os.environ.get('CONDA_DEFAULT_ENV', 'unknown')}")
@@ -197,12 +199,7 @@ def build():
         return 1
 
     # Build command - using the spec file directly
-    build_cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--clean",
-        "--noconfirm",
-        "project.spec"
-    ]
+    build_cmd = [sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", "project.spec"]
 
     print(f"Running: {' '.join(build_cmd)}")
     result = subprocess.run(build_cmd, capture_output=False)
@@ -220,8 +217,12 @@ def build():
             except ImportError:
                 print("\nmodal/questionary not found; installing for modal.spec build...")
                 install_cmd = [
-                    sys.executable, "-m", "pip", "install",
-                    "modal", "questionary",
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "modal",
+                    "questionary",
                 ]
                 install_result = subprocess.run(install_cmd, capture_output=False)
                 if install_result.returncode != 0:
@@ -229,11 +230,15 @@ def build():
                     return 1
 
             modal_cmd = [
-                sys.executable, "-m", "PyInstaller",
+                sys.executable,
+                "-m",
+                "PyInstaller",
                 "--clean",
                 "--noconfirm",
-                "--distpath", str(Path("dist") / "faster_whisper_transwithai_chickenrice"),
-                "--workpath", str(Path("build") / "modal"),
+                "--distpath",
+                str(Path("dist") / "faster_whisper_transwithai_chickenrice"),
+                "--workpath",
+                str(Path("build") / "modal"),
                 str(modal_spec),
             ]
             print(f"\nRunning: {' '.join(modal_cmd)}")
@@ -244,14 +249,14 @@ def build():
 
         dist_root = Path("dist")
         dist_dir = dist_root / "faster_whisper_transwithai_chickenrice"
-        engine_dir = dist_root / "engine"
-        client_dir = dist_root / "client"
+        dist_root / "engine"
+        dist_root / "client"
 
         if dist_dir.exists():
             # Quick verification of critical libraries
             print("\nVerifying CUDA libraries in distribution...")
 
-            critical_libs = ['cudnn', 'cublas', 'cudart']
+            critical_libs = ["cudnn", "cublas", "cudart"]
             found_libs = {}
             missing_libs = []
 
@@ -264,7 +269,7 @@ def build():
                     if critical in dll_path.name.lower():
                         # Get relative path from dist_dir
                         rel_path = dll_path.relative_to(dist_dir)
-                        location = str(rel_path.parent) if str(rel_path.parent) != '.' else 'root'
+                        location = str(rel_path.parent) if str(rel_path.parent) != "." else "root"
                         found_in_locations.append(location)
 
                 if found_in_locations:
@@ -274,9 +279,9 @@ def build():
                     missing_libs.append(critical)
 
             if found_libs:
-                print(f"  ✓ Found critical libraries:")
+                print("  ✓ Found critical libraries:")
                 for lib, locations in found_libs.items():
-                    locations_str = ', '.join(locations)
+                    locations_str = ", ".join(locations)
                     print(f"    - {lib}: {locations_str}")
 
             if missing_libs:
@@ -294,6 +299,6 @@ def build():
 
     return 0
 
+
 if __name__ == "__main__":
     sys.exit(build())
-    

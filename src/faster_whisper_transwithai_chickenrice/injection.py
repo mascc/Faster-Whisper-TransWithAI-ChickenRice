@@ -3,16 +3,17 @@ VAD Injection System - Redirects faster_whisper VAD calls to custom implementati
 Provides transparent switching between custom VAD models
 """
 
-import unittest.mock as mock
-from typing import List, Dict, Any, Optional, Callable
 import logging
-import numpy as np
+import unittest.mock as mock
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
-from .vad_manager import VadModelManager, VadConfig
+import numpy as np
 
 # Import modern i18n module for translations
 from . import i18n_modern as i18n
+from .vad_manager import VadConfig, VadModelManager
 
 # Convenience imports
 _ = i18n._
@@ -29,10 +30,11 @@ _global_progress_callback = None
 @dataclass
 class VadOptionsCompat:
     """Mock VadOptions class that mimics faster_whisper.vad.VadOptions"""
+
     threshold: float = 0.5
-    neg_threshold: Optional[float] = None
+    neg_threshold: float | None = None
     min_speech_duration_ms: int = 0
-    max_speech_duration_s: float = float('inf')
+    max_speech_duration_s: float = float("inf")
     min_silence_duration_ms: int = 2000
     speech_pad_ms: int = 400
 
@@ -56,11 +58,8 @@ def get_global_config() -> VadConfig:
 
 
 def get_speech_timestamps_injected(
-    audio: np.ndarray,
-    vad_options: Any = None,
-    sampling_rate: int = 16000,
-    **kwargs
-) -> List[Dict[str, Any]]:
+    audio: np.ndarray, vad_options: Any = None, sampling_rate: int = 16000, **kwargs
+) -> list[dict[str, Any]]:
     """
     Injected implementation of get_speech_timestamps that uses our VAD model manager.
 
@@ -71,10 +70,10 @@ def get_speech_timestamps_injected(
     config = get_global_config()
 
     # Check if a specific model was requested via kwargs
-    model_id = kwargs.get('vad_model_id', config.default_model)
+    model_id = kwargs.get("vad_model_id", config.default_model)
 
     # Check if a progress callback was provided (from kwargs or global)
-    progress_callback = kwargs.get('progress_callback', None) or _global_progress_callback
+    progress_callback = kwargs.get("progress_callback") or _global_progress_callback
 
     # Create manager (this uses cached instances internally)
     manager = VadModelManager(config=config, ttl=config.ttl, progress_callback=progress_callback)
@@ -82,42 +81,37 @@ def get_speech_timestamps_injected(
     # Extract options from vad_options (works with both real and mock VadOptions)
     if vad_options is not None:
         options_dict = {
-            'threshold': getattr(vad_options, 'threshold', config.threshold),
-            'neg_threshold': getattr(vad_options, 'neg_threshold', config.neg_threshold),
-            'min_speech_duration_ms': getattr(vad_options, 'min_speech_duration_ms', config.min_speech_duration_ms),
-            'max_speech_duration_s': getattr(vad_options, 'max_speech_duration_s', config.max_speech_duration_s),
-            'min_silence_duration_ms': getattr(vad_options, 'min_silence_duration_ms', config.min_silence_duration_ms),
-            'speech_pad_ms': getattr(vad_options, 'speech_pad_ms', config.speech_pad_ms),
+            "threshold": getattr(vad_options, "threshold", config.threshold),
+            "neg_threshold": getattr(vad_options, "neg_threshold", config.neg_threshold),
+            "min_speech_duration_ms": getattr(vad_options, "min_speech_duration_ms", config.min_speech_duration_ms),
+            "max_speech_duration_s": getattr(vad_options, "max_speech_duration_s", config.max_speech_duration_s),
+            "min_silence_duration_ms": getattr(vad_options, "min_silence_duration_ms", config.min_silence_duration_ms),
+            "speech_pad_ms": getattr(vad_options, "speech_pad_ms", config.speech_pad_ms),
         }
     else:
         # Use defaults from config
         options_dict = {
-            'threshold': config.threshold,
-            'neg_threshold': config.neg_threshold,
-            'min_speech_duration_ms': config.min_speech_duration_ms,
-            'max_speech_duration_s': config.max_speech_duration_s,
-            'min_silence_duration_ms': config.min_silence_duration_ms,
-            'speech_pad_ms': config.speech_pad_ms,
+            "threshold": config.threshold,
+            "neg_threshold": config.neg_threshold,
+            "min_speech_duration_ms": config.min_speech_duration_ms,
+            "max_speech_duration_s": config.max_speech_duration_s,
+            "min_silence_duration_ms": config.min_silence_duration_ms,
+            "speech_pad_ms": config.speech_pad_ms,
         }
 
     # Remove vad_model_id and progress_callback from kwargs to avoid passing them to the actual VAD
     kwargs_copy = kwargs.copy()
-    kwargs_copy.pop('vad_model_id', None)
-    kwargs_copy.pop('progress_callback', None)
+    kwargs_copy.pop("vad_model_id", None)
+    kwargs_copy.pop("progress_callback", None)
 
     # Merge options_dict with remaining kwargs
     final_kwargs = {**options_dict, **kwargs_copy}
 
     # Get speech timestamps using the model manager
-    return manager.get_speech_timestamps(
-        model_id=model_id,
-        audio=audio,
-        sampling_rate=sampling_rate,
-        **final_kwargs
-    )
+    return manager.get_speech_timestamps(model_id=model_id, audio=audio, sampling_rate=sampling_rate, **final_kwargs)
 
 
-def get_vad_patches(model_id: Optional[str] = None) -> Dict[str, mock.Mock]:
+def get_vad_patches(model_id: str | None = None) -> dict[str, mock.Mock]:
     """
     Get all VAD-related patches for the codebase.
 
@@ -129,23 +123,21 @@ def get_vad_patches(model_id: Optional[str] = None) -> Dict[str, mock.Mock]:
     """
     # Create wrapper functions that include model_id if specified
     if model_id:
+
         def get_timestamps_wrapper(audio, vad_options=None, sampling_rate=16000, **kwargs):
-            kwargs['vad_model_id'] = model_id
+            kwargs["vad_model_id"] = model_id
             return get_speech_timestamps_injected(audio, vad_options, sampling_rate, **kwargs)
     else:
         get_timestamps_wrapper = get_speech_timestamps_injected
 
     patches = {
         # Core VAD module patches
-        'faster_whisper.vad.VadOptions': mock.Mock(side_effect=VadOptionsCompat),
-        'faster_whisper.vad.get_speech_timestamps': mock.Mock(side_effect=get_timestamps_wrapper),
-
+        "faster_whisper.vad.VadOptions": mock.Mock(side_effect=VadOptionsCompat),
+        "faster_whisper.vad.get_speech_timestamps": mock.Mock(side_effect=get_timestamps_wrapper),
         # Alternative import location (used in transcribe module)
-        'faster_whisper.transcribe.get_speech_timestamps': mock.Mock(side_effect=get_timestamps_wrapper),
-
+        "faster_whisper.transcribe.get_speech_timestamps": mock.Mock(side_effect=get_timestamps_wrapper),
         # Patch for VadOptions in transcribe module
-        'faster_whisper.transcribe.VadOptions': mock.Mock(side_effect=VadOptionsCompat),
-
+        "faster_whisper.transcribe.VadOptions": mock.Mock(side_effect=VadOptionsCompat),
         # You can add more patches here for specific modules if needed
         # For example, if you have modules that directly import from faster_whisper:
         # 'your_module.VadOptions': mock.Mock(side_effect=VadOptionsCompat),
@@ -155,7 +147,9 @@ def get_vad_patches(model_id: Optional[str] = None) -> Dict[str, mock.Mock]:
     return patches
 
 
-def inject_vad(model_id: Optional[str] = None, config: Optional[VadConfig] = None, progress_callback: Optional[Callable] = None) -> None:
+def inject_vad(
+    model_id: str | None = None, config: VadConfig | None = None, progress_callback: Callable | None = None
+) -> None:
     """
     Inject VAD implementation to redirect faster_whisper calls.
 
@@ -229,7 +223,7 @@ class VadInjectionContext:
             timestamps = get_speech_timestamps(audio, vad_options)
     """
 
-    def __init__(self, model_id: Optional[str] = None, config: Optional[VadConfig] = None):
+    def __init__(self, model_id: str | None = None, config: VadConfig | None = None):
         self.model_id = model_id
         self.config = config
         self.was_active = False
@@ -248,7 +242,7 @@ class VadInjectionContext:
             inject_vad()  # Restore previous injection
 
 
-def auto_inject_vad(config: Optional[VadConfig] = None) -> None:
+def auto_inject_vad(config: VadConfig | None = None) -> None:
     """
     Automatically inject VAD based on configuration.
     This should be called during application startup.
@@ -268,7 +262,7 @@ def auto_inject_vad(config: Optional[VadConfig] = None) -> None:
         logger.info(_("injection.auto_injected", model_id=model_id))
 
 
-def with_vad_injection(model_id: Optional[str] = None, config: Optional[VadConfig] = None):
+def with_vad_injection(model_id: str | None = None, config: VadConfig | None = None):
     """
     Decorator to use VAD injection for a specific function.
 
@@ -279,11 +273,14 @@ def with_vad_injection(model_id: Optional[str] = None, config: Optional[VadConfi
             from faster_whisper.vad import get_speech_timestamps
             return get_speech_timestamps(audio, vad_options)
     """
+
     def decorator(func):
         def wrapper(*args, **kwargs):
             with VadInjectionContext(model_id, config):
                 return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 

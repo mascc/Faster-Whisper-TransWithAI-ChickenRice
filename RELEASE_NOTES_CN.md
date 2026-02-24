@@ -35,7 +35,7 @@
 
 ### 📌 文件命名规则
 
-| 文件名后缀 | CUDA版本 | 模型类型 |
+| 文件名后缀 | CUDA/ROCm | 模型类型 |
 |-----------|---------|---------|
 | `*_cu118.zip` | CUDA 11.8 | 基础版 |
 | `*_cu118-chickenrice.zip` | CUDA 11.8 | 海南鸡版 |
@@ -43,12 +43,25 @@
 | `*_cu122-chickenrice.zip` | CUDA 12.2 | 海南鸡版 |
 | `*_cu128.zip` | CUDA 12.8 | 基础版 |
 | `*_cu128-chickenrice.zip` | CUDA 12.8 | 海南鸡版 |
+| `*_gfx101x_dgpu.zip` | AMD ROCm/HIP (gfx101X) | 基础版 |
+| `*_gfx101x_dgpu-chickenrice.zip` | AMD ROCm/HIP (gfx101X) | 海南鸡版 |
+| `*_gfx103x_dgpu.zip` | AMD ROCm/HIP (gfx103X) | 基础版 |
+| `*_gfx103x_dgpu-chickenrice.zip` | AMD ROCm/HIP (gfx103X) | 海南鸡版 |
+| `*_gfx110x_all.zip` | AMD ROCm/HIP (gfx110X) | 基础版 |
+| `*_gfx110x_all-chickenrice.zip` | AMD ROCm/HIP (gfx110X) | 海南鸡版 |
+| `*_gfx120x_all.zip` | AMD ROCm/HIP (gfx120X) | 基础版 |
+| `*_gfx120x_all-chickenrice.zip` | AMD ROCm/HIP (gfx120X) | 海南鸡版 |
+
+> AMD 版本仍然使用 `--device=cuda`（这是 CTranslate2 在 HIP/ROCm 后端下的公开 API 约定）。命令行也可使用 `--device=amd`（等同于 `--device=cuda`）。
+> 暂不提供 `gfx115x` iGPU/mobile 版本（请使用 CPU 版或 Modal 云端推理）。
 
 ---
 
-## 🔍 如何选择正确的 CUDA 版本
+## 🔍 如何选择正确的版本
 
-### 方法一：通过 nvidia-smi 查询
+### NVIDIA 显卡 —— 选择 CUDA 版本
+
+#### 方法一：通过 nvidia-smi 查询
 
 1. 打开命令提示符或终端
 2. 输入命令：`nvidia-smi`
@@ -60,7 +73,7 @@
 +-------------------------------------------------------------------------+
 ```
 
-### 方法二：通过显卡型号和驱动版本对照表
+#### 方法二：通过显卡型号和驱动版本对照表
 
 #### 📊 NVIDIA 驱动版本与 CUDA 版本兼容性表
 
@@ -81,12 +94,28 @@
 | RTX 40系列（4060/4070/4080/4090等） | **CUDA 12.2** 或 **12.8** | 最新驱动用12.8 |
 | **RTX 50系列（5090/5080/5070等）** | **🔴 必须使用 CUDA 12.8** | ⚠️ 注意：RTX 50系列必须使用CUDA 12.8版本 |
 
-### ⚠️ 重要提示
+#### ⚠️ 重要提示
 
 - **RTX 50系列用户**：由于新架构要求，**必须使用 CUDA 12.8 版本**，驱动版本必须 ≥570.00
 - **驱动版本查询**：在 nvidia-smi 中显示的 CUDA Version 是您的驱动**支持的最高**CUDA版本
 - **向下兼容**：高版本驱动可以运行低版本CUDA程序（例如：570驱动可以运行CUDA 11.8程序）
 - **性能考虑**：使用与驱动匹配的CUDA版本可获得最佳性能
+
+### AMD 显卡 —— 选择 ROCm/HIP 版本
+
+AMD 显卡用户请下载带有 `gfx***` 后缀的版本。AMD 版本已内置 ROCm/HIP 运行时 DLL，一般无需单独安装 ROCm。
+
+**快速自查：**
+
+| 显卡型号 | 下载后缀 |
+|---|---|
+| RX 5300 / RX 5500 / RX 5600 / RX 5700 系列 | `gfx101x_dgpu` |
+| RX 6400 / RX 6500 XT / RX 6600 / RX 6700 / RX 6800 / RX 6900 系列 | `gfx103x_dgpu` |
+| RX 7600 / RX 7700 XT / RX 7800 XT / RX 7900 系列 | `gfx110x_all` |
+| RX 9060 / RX 9060 XT / RX 9070（含 GRE/XT） | `gfx120x_all` |
+| iGPU: Radeon 890M / 8060S / 860M (gfx115x) | ⚠️ 暂不支持 |
+
+> 不知道自己的显卡型号？打开 "任务管理器 -> 性能 -> GPU" 或 "设备管理器 -> 显示适配器"
 
 ---
 
@@ -163,6 +192,15 @@ A: 使用"低显存模式"批处理文件，或切换到CPU模式。
 ---
 
 ## 📝 更新日志
+
+### v1.7 (2026-02-24)
+- 🔴 **AMD ROCm/HIP GPU 支持**：新增 AMD 显卡支持（RDNA1–RDNA4），覆盖 RX 5000 / 6000 / 7000 / 9000 系列
+- 📦 **多架构构建**：提供 gfx101x（RDNA1）、gfx103x（RDNA2）、gfx110x（RDNA3）、gfx120x（RDNA4）四种架构的打包版本
+- 🔧 **ROCm 运行时内置**：AMD 版本内置 ROCm/HIP 运行时 DLL，无需单独安装 ROCm
+- 🎮 **设备别名**：命令行支持 `--device=amd`（等同于 `--device=cuda`，CTranslate2 HIP 后端约定）
+- ⚡ **自动设备检测增强**：改进 GPU 检测逻辑，支持 AMD HIP 设备自动识别
+
+**📋 AMD 版本选择**：参考上方 "AMD 显卡 —— 选择 ROCm/HIP 版本" 或 README 中的完整型号列表。
 
 ### v1.6 (2026-01-12)
 - ☁️ **Modal 云端推理支持**：新增 `modal_infer.exe`，无需本地 GPU 也能使用云端 GPU 进行推理（感谢 [@Randomless](https://github.com/Randomless) 贡献）

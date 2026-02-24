@@ -28,7 +28,7 @@ High-performance audio/video transcription and translation tool - Japanese-to-Ch
 ## ✨ 功能特性 / Features
 
 - 🎯 **高精度日文转中文翻译**: 基于5000小时音频数据训练的"海南鸡v2"日文转中文优化模型
-- 🚀 **GPU加速**: 支持CUDA 11.8/12.2/12.8，充分利用NVIDIA显卡性能
+- 🚀 **GPU加速**: 支持 NVIDIA CUDA 11.8/12.2/12.8 及 AMD ROCm/HIP（RDNA1–RDNA4）
 - ☁️ **云端推理**: 支持 Modal 云端 GPU 推理，无本地显卡也能使用
 - 📝 **多格式输出**: 支持SRT、VTT、LRC等多种字幕格式
 - 🎬 **音视频支持**: 支持常见音频(mp3/wav/flac等)和视频格式(mp4/mkv/avi等)
@@ -59,6 +59,59 @@ High-performance audio/video transcription and translation tool - Japanese-to-Ch
 | RTX 20/30系列 | CUDA 11.8 或 12.2 |
 | RTX 40系列 | CUDA 12.2 或 12.8 |
 | RTX 50系列 | **必须使用 CUDA 12.8** |
+
+### AMD 显卡（ROCm/HIP）/ AMD GPU (ROCm/HIP)
+
+AMD 显卡用户（Windows）：请下载带有 `gfx***` 后缀的版本，每个 ZIP 对应一类 `gfx` 架构。AMD 版本已内置 ROCm/HIP 运行时 DLL，一般无需单独安装 ROCm。
+
+For AMD GPU users (Windows): download the ZIP matching your GPU's `gfx` family. ROCm/HIP runtime DLLs are bundled — no separate ROCm install needed in most cases.
+
+| 显卡 / GPU | 下载后缀 / Suffix | GFX 架构 / Architecture |
+|---|---|---|
+| RX 5000 / RDNA1 | `gfx101x_dgpu` | gfx1010 / gfx1011 / gfx1012 |
+| RX 6000 / RDNA2 | `gfx103x_dgpu` | gfx1030 / gfx1031 / gfx1032 / gfx1034 |
+| RX 7000 / RDNA3 | `gfx110x_all` | gfx1100 / gfx1101 / gfx1102（部分 iGPU 为 gfx1103） |
+| RX 9000 / RDNA4 | `gfx120x_all` | gfx1200 / gfx1201 |
+
+> **不知道自己的显卡型号？/ Don't know your GPU model?**
+> Windows：打开 “任务管理器 -> 性能 -> GPU” 或 “设备管理器 -> 显示适配器”
+> Windows: open “Task Manager -> Performance -> GPU” or “Device Manager -> Display adapters”
+
+**快速自查 / Quick Self-Check**
+
+| 显卡型号 / GPU Model | 下载后缀 / Download Suffix |
+|---|---|
+| RX 5300 / RX 5500 / RX 5600 / RX 5700 系列 | `gfx101x_dgpu` |
+| RX 6400 / RX 6500 XT / RX 6600 / RX 6700 / RX 6800 / RX 6900 系列 | `gfx103x_dgpu` |
+| RX 7600 / RX 7700 XT / RX 7800 XT / RX 7900 系列 | `gfx110x_all` |
+| RX 9060 / RX 9060 XT / RX 9070（含 GRE/XT） | `gfx120x_all` |
+| iGPU: Radeon 890M / 8060S / 860M (gfx115x) | ⚠️ 暂不支持 / Not yet supported |
+
+> iGPU 用户请使用 CPU 版或 Modal 云端推理 / iGPU users: use the CPU build or Modal cloud inference
+
+<details>
+<summary><b>完整型号列表（按系列）/ Full model lists (by series)</b></summary>
+
+- **RX 5000 (RDNA1)** -> `gfx101x_dgpu`
+  - Desktop: RX 5300, RX 5300 XT, RX 5500, RX 5500 XT, RX 5600, RX 5600 XT, RX 5700, RX 5700 XT (incl. 50th Anniversary Edition)
+  - Mobile dGPU: RX 5300M, RX 5500M, RX 5600M, RX 5700M
+
+- **RX 6000 (RDNA2)** -> `gfx103x_dgpu`
+  - Desktop: RX 6300 (OEM), RX 6400, RX 6500 XT, RX 6600, RX 6600 XT, RX 6650 XT, RX 6700, RX 6700 XT, RX 6750 GRE, RX 6750 XT, RX 6800, RX 6800 XT, RX 6900 XT, RX 6950 XT
+  - Mobile dGPU: RX 6300M, RX 6450M, RX 6500M, RX 6550S, RX 6550M, RX 6600S, RX 6600M, RX 6650M, RX 6650M XT, RX 6700S, RX 6700M, RX 6800S, RX 6800M, RX 6850M XT
+
+- **RX 7000 (RDNA3)** -> `gfx110x_all`
+  - Desktop: RX 7400 (OEM), RX 7600, RX 7600 XT, RX 7650 GRE, RX 7700 (OEM), RX 7700 XT, RX 7800 XT, RX 7900 GRE, RX 7900 XT, RX 7900 XTX
+  - Mobile dGPU: RX 7600S, RX 7600M XT, RX 7700S, RX 7800M, RX 7900M
+
+- **RX 9000 (RDNA4)** -> `gfx120x_all`
+  - Desktop: RX 9060, RX 9060 XT, RX 9070 GRE, RX 9070, RX 9070 XT
+
+</details>
+
+使用方式与 NVIDIA 版本相同，运行 `运行(GPU).bat` 即可（内部使用 `--device=cuda`，这是 CTranslate2 HIP 后端的约定）。命令行也可使用 `--device=amd`（等同于 `--device=cuda`）。
+
+Usage is the same as NVIDIA builds — just run `运行(GPU).bat` (internally uses `--device=cuda`, which is CTranslate2's HIP convention). CLI also accepts `--device=amd` (alias for `--device=cuda`).
 
 ### 2. 下载对应版本 / Download
 
@@ -172,7 +225,7 @@ python modal_infer.py
 ## 💡 常见问题 / FAQ
 
 **Q: GPU模式无法运行？**
-A: 确认是否为NVIDIA显卡，更新显卡驱动到最新版本
+A: 确认显卡驱动已更新到最新版本。NVIDIA 用户请确认 CUDA 版本匹配；AMD 用户请确认下载了对应 gfx 架构的版本
 
 **Q: 字幕未生成？**
 A: 检查文件格式是否支持，查看控制台错误信息，尝试使用 `--overwrite` 参数

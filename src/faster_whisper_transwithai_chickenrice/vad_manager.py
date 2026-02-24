@@ -6,10 +6,12 @@ import json
 import logging
 import os
 import warnings
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Protocol, Callable
-import numpy as np
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Protocol
+
+import numpy as np
 
 # Import modern i18n module for translations
 from . import i18n_modern as i18n
@@ -23,21 +25,22 @@ logger = logging.getLogger(__name__)
 @dataclass
 class VadConfig:
     """Configuration for VAD models"""
+
     default_model: str = "whisper_vad"
     auto_inject: bool = False
     ttl: int = 3600  # Cache TTL in seconds
 
     # VAD parameters
     threshold: float = 0.5
-    neg_threshold: Optional[float] = None
+    neg_threshold: float | None = None
     min_speech_duration_ms: int = 250
-    max_speech_duration_s: float = float('inf')
+    max_speech_duration_s: float = float("inf")
     min_silence_duration_ms: int = 2000
     speech_pad_ms: int = 400
 
     # ONNX-specific parameters
-    onnx_model_path: Optional[str] = None
-    onnx_metadata_path: Optional[str] = None
+    onnx_model_path: str | None = None
+    onnx_metadata_path: str | None = None
     whisper_model_name: str = "openai/whisper-base"
     frame_duration_ms: int = 20
     chunk_duration_ms: int = 30000
@@ -48,12 +51,7 @@ class VadConfig:
 class VadModel(Protocol):
     """Protocol for VAD models"""
 
-    def get_speech_timestamps(
-        self,
-        audio: np.ndarray,
-        sampling_rate: int = 16000,
-        **kwargs
-    ) -> List[Dict[str, Any]]:
+    def get_speech_timestamps(self, audio: np.ndarray, sampling_rate: int = 16000, **kwargs) -> list[dict[str, Any]]:
         """Get speech timestamps from audio"""
         ...
 
@@ -64,10 +62,10 @@ class WhisperVADOnnxWrapper:
     def __init__(
         self,
         model_path: str,
-        metadata_path: Optional[str] = None,
+        metadata_path: str | None = None,
         force_cpu: bool = False,
         num_threads: int = 1,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ):
         """Initialize ONNX model wrapper.
 
@@ -80,13 +78,13 @@ class WhisperVADOnnxWrapper:
         """
         try:
             import onnxruntime as ort
-        except ImportError:
-            raise ImportError(_("vad.onnx_not_installed"))
+        except ImportError as err:
+            raise ImportError(_("vad.onnx_not_installed")) from err
 
         try:
             from transformers import WhisperFeatureExtractor
-        except ImportError:
-            raise ImportError(_("vad.transformers_not_installed"))
+        except ImportError as err:
+            raise ImportError(_("vad.transformers_not_installed")) from err
 
         self.model_path = model_path
         self.progress_callback = progress_callback
@@ -94,17 +92,17 @@ class WhisperVADOnnxWrapper:
 
         # Load metadata
         if metadata_path is None:
-            metadata_path = model_path.replace('.onnx', '_metadata.json')
+            metadata_path = model_path.replace(".onnx", "_metadata.json")
 
         if os.path.exists(metadata_path):
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path) as f:
                 self.metadata = json.load(f)
         else:
             warnings.warn("No metadata file found. Using default values.")
             self.metadata = {
-                'whisper_model_name': 'openai/whisper-base',
-                'frame_duration_ms': 20,
-                'total_duration_ms': 30000,
+                "whisper_model_name": "openai/whisper-base",
+                "frame_duration_ms": 20,
+                "total_duration_ms": 30000,
             }
 
         # Initialize feature extractor - try local folder first for offline usage
@@ -112,30 +110,24 @@ class WhisperVADOnnxWrapper:
         if local_whisper_base_path.exists() and (local_whisper_base_path / "preprocessor_config.json").exists():
             # Load from local folder for offline usage
             try:
-                self.feature_extractor = WhisperFeatureExtractor.from_pretrained(
-                    str(local_whisper_base_path)
-                )
+                self.feature_extractor = WhisperFeatureExtractor.from_pretrained(str(local_whisper_base_path))
                 logger.info(_("vad.feature_extractor_loaded", path=local_whisper_base_path))
             except Exception as e:
                 warnings.warn(f"Failed to load from local folder, trying online: {e}")
-                self.feature_extractor = WhisperFeatureExtractor.from_pretrained(
-                    self.metadata['whisper_model_name']
-                )
+                self.feature_extractor = WhisperFeatureExtractor.from_pretrained(self.metadata["whisper_model_name"])
         else:
             # Try to load from HuggingFace (requires internet)
-            self.feature_extractor = WhisperFeatureExtractor.from_pretrained(
-                self.metadata['whisper_model_name']
-            )
+            self.feature_extractor = WhisperFeatureExtractor.from_pretrained(self.metadata["whisper_model_name"])
 
         # Set up ONNX Runtime session
         opts = ort.SessionOptions()
 
         # Determine execution provider first
-        providers = ['CPUExecutionProvider']
-        use_gpu = not force_cpu and 'CUDAExecutionProvider' in ort.get_available_providers()
+        providers = ["CPUExecutionProvider"]
+        use_gpu = not force_cpu and "CUDAExecutionProvider" in ort.get_available_providers()
 
         if use_gpu:
-            providers.insert(0, 'CUDAExecutionProvider')
+            providers.insert(0, "CUDAExecutionProvider")
             self.device = "GPU (CUDA)"
             # For GPU, use the provided num_threads or default
             opts.inter_op_num_threads = num_threads
@@ -144,13 +136,13 @@ class WhisperVADOnnxWrapper:
             self.device = "CPU"
             # For CPU, use half of available processors if num_threads is default (1)
             import multiprocessing
+
             if num_threads == 1:
                 # Use half of CPU count for optimal performance
                 optimal_threads = max(1, multiprocessing.cpu_count() // 2)
                 opts.inter_op_num_threads = optimal_threads
                 opts.intra_op_num_threads = optimal_threads
-                logger.info(_("vad.auto_configured", threads=optimal_threads,
-                    total=multiprocessing.cpu_count()))
+                logger.info(_("vad.auto_configured", threads=optimal_threads, total=multiprocessing.cpu_count()))
             else:
                 # Use user-specified thread count
                 opts.inter_op_num_threads = num_threads
@@ -164,8 +156,8 @@ class WhisperVADOnnxWrapper:
 
         # Model parameters
         self.sample_rate = 16000  # Whisper uses 16kHz
-        self.frame_duration_ms = self.metadata.get('frame_duration_ms', 20)
-        self.chunk_duration_ms = self.metadata.get('total_duration_ms', 30000)
+        self.frame_duration_ms = self.metadata.get("frame_duration_ms", 20)
+        self.chunk_duration_ms = self.metadata.get("total_duration_ms", 30000)
         self.chunk_samples = int(self.chunk_duration_ms * self.sample_rate / 1000)
         self.frames_per_chunk = int(self.chunk_duration_ms / self.frame_duration_ms)
 
@@ -201,6 +193,7 @@ class WhisperVADOnnxWrapper:
         if sr != self.sample_rate:
             try:
                 import librosa
+
                 audio = librosa.resample(audio, orig_sr=sr, target_sr=self.sample_rate)
             except ImportError:
                 logger.warning(_("vad.librosa_not_installed"))
@@ -227,26 +220,15 @@ class WhisperVADOnnxWrapper:
 
         # Ensure chunk is correct size
         if len(audio_chunk) < self.chunk_samples:
-            audio_chunk = np.pad(
-                audio_chunk,
-                (0, self.chunk_samples - len(audio_chunk)),
-                mode='constant'
-            )
+            audio_chunk = np.pad(audio_chunk, (0, self.chunk_samples - len(audio_chunk)), mode="constant")
         elif len(audio_chunk) > self.chunk_samples:
-            audio_chunk = audio_chunk[:self.chunk_samples]
+            audio_chunk = audio_chunk[: self.chunk_samples]
 
         # Extract features
-        inputs = self.feature_extractor(
-            audio_chunk,
-            sampling_rate=self.sample_rate,
-            return_tensors="np"
-        )
+        inputs = self.feature_extractor(audio_chunk, sampling_rate=self.sample_rate, return_tensors="np")
 
         # Run inference
-        outputs = self.session.run(
-            self.output_names,
-            {self.input_name: inputs.input_features}
-        )
+        outputs = self.session.run(self.output_names, {self.input_name: inputs.input_features})
 
         # Apply sigmoid to get probabilities
         frame_logits = outputs[0][0]  # Remove batch dimension
@@ -280,11 +262,11 @@ class WhisperVADOnnxWrapper:
 
         # Process in chunks
         for chunk_idx, i in enumerate(range(0, len(audio), self.chunk_samples)):
-            chunk = audio[i:i + self.chunk_samples]
+            chunk = audio[i : i + self.chunk_samples]
 
             # Pad last chunk if needed
             if len(chunk) < self.chunk_samples:
-                chunk = np.pad(chunk, (0, self.chunk_samples - len(chunk)), mode='constant')
+                chunk = np.pad(chunk, (0, self.chunk_samples - len(chunk)), mode="constant")
 
             # Report progress
             if self.progress_callback:
@@ -292,8 +274,15 @@ class WhisperVADOnnxWrapper:
 
             # Log chunk progress
             progress_pct = ((chunk_idx + 1) / total_chunks) * 100
-            logger.debug(_("vad.processing_chunk", current=chunk_idx + 1, total=total_chunks,
-                percent=progress_pct, device=self.device))
+            logger.debug(
+                _(
+                    "vad.processing_chunk",
+                    current=chunk_idx + 1,
+                    total=total_chunks,
+                    percent=progress_pct,
+                    device=self.device,
+                )
+            )
 
             # Get predictions for chunk
             chunk_probs = self.__call__(chunk, self.sample_rate)
@@ -313,13 +302,13 @@ def get_speech_timestamps_onnx(
     threshold: float = 0.5,
     sampling_rate: int = 16000,
     min_speech_duration_ms: int = 250,
-    max_speech_duration_s: float = float('inf'),
+    max_speech_duration_s: float = float("inf"),
     min_silence_duration_ms: int = 100,
     speech_pad_ms: int = 30,
     return_seconds: bool = True,
-    neg_threshold: Optional[float] = None,
-    progress_tracking_callback: Optional[Callable[[float], None]] = None,
-) -> List[Dict[str, float]]:
+    neg_threshold: float | None = None,
+    progress_tracking_callback: Callable[[float], None] | None = None,
+) -> list[dict[str, float]]:
     """Extract speech timestamps from audio using Silero-style processing.
 
     This function implements Silero VAD's approach with:
@@ -362,7 +351,11 @@ def get_speech_timestamps_onnx(
     min_speech_frames = int(min_speech_duration_ms / frame_duration_ms)
     min_silence_frames = int(min_silence_duration_ms / frame_duration_ms)
     speech_pad_frames = int(speech_pad_ms / frame_duration_ms)
-    max_speech_frames = int(max_speech_duration_s * 1000 / frame_duration_ms) if max_speech_duration_s != float('inf') else len(speech_probs)
+    max_speech_frames = (
+        int(max_speech_duration_s * 1000 / frame_duration_ms)
+        if max_speech_duration_s != float("inf")
+        else len(speech_probs)
+    )
 
     # Set negative threshold for hysteresis
     if neg_threshold is None:
@@ -389,19 +382,19 @@ def get_speech_timestamps_onnx(
         # Speech onset detection
         if speech_prob >= threshold and not triggered:
             triggered = True
-            current_speech['start'] = i
+            current_speech["start"] = i
             current_probs = [float(speech_prob)]  # Start tracking probabilities
             continue
 
         # Check for maximum speech duration
-        if triggered and 'start' in current_speech:
-            duration = i - current_speech['start']
+        if triggered and "start" in current_speech:
+            duration = i - current_speech["start"]
             if duration > max_speech_frames:
                 # Force end segment at max duration
-                current_speech['end'] = current_speech['start'] + max_speech_frames
+                current_speech["end"] = current_speech["start"] + max_speech_frames
                 # Calculate probability statistics for segment
                 if current_probs:
-                    current_speech['probability'] = np.mean(current_probs)
+                    current_speech["probability"] = np.mean(current_probs)
                 speeches.append(current_speech)
                 current_speech = {}
                 current_probs = []
@@ -417,13 +410,13 @@ def get_speech_timestamps_onnx(
             # Check if silence is long enough
             if i - temp_end >= min_silence_frames:
                 # End current speech segment
-                current_speech['end'] = temp_end
+                current_speech["end"] = temp_end
 
                 # Check minimum duration
-                if current_speech['end'] - current_speech['start'] >= min_speech_frames:
+                if current_speech["end"] - current_speech["start"] >= min_speech_frames:
                     # Calculate probability statistics for segment
                     if current_probs:
-                        current_speech['probability'] = np.mean(current_probs[:temp_end - current_speech['start']])
+                        current_speech["probability"] = np.mean(current_probs[: temp_end - current_speech["start"]])
                     speeches.append(current_speech)
 
                 current_speech = {}
@@ -436,37 +429,37 @@ def get_speech_timestamps_onnx(
             temp_end = 0
 
     # Handle speech that continues to the end
-    if triggered and 'start' in current_speech:
-        current_speech['end'] = len(speech_probs)
-        if current_speech['end'] - current_speech['start'] >= min_speech_frames:
+    if triggered and "start" in current_speech:
+        current_speech["end"] = len(speech_probs)
+        if current_speech["end"] - current_speech["start"] >= min_speech_frames:
             # Calculate probability statistics for segment
             if current_probs:
-                current_speech['probability'] = np.mean(current_probs)
+                current_speech["probability"] = np.mean(current_probs)
             speeches.append(current_speech)
 
     # Apply padding to segments
     for i, speech in enumerate(speeches):
         # Add padding
         if i == 0:
-            speech['start'] = max(0, speech['start'] - speech_pad_frames)
+            speech["start"] = max(0, speech["start"] - speech_pad_frames)
         else:
-            speech['start'] = max(speeches[i-1]['end'], speech['start'] - speech_pad_frames)
+            speech["start"] = max(speeches[i - 1]["end"], speech["start"] - speech_pad_frames)
 
         if i < len(speeches) - 1:
-            speech['end'] = min(speeches[i+1]['start'], speech['end'] + speech_pad_frames)
+            speech["end"] = min(speeches[i + 1]["start"], speech["end"] + speech_pad_frames)
         else:
-            speech['end'] = min(len(speech_probs), speech['end'] + speech_pad_frames)
+            speech["end"] = min(len(speech_probs), speech["end"] + speech_pad_frames)
 
     # Convert to time units or sample indices based on return_seconds
     for speech in speeches:
         if return_seconds:
             # Convert frame indices to seconds
-            speech['start'] = speech['start'] * frame_duration_ms / 1000
-            speech['end'] = speech['end'] * frame_duration_ms / 1000
+            speech["start"] = speech["start"] * frame_duration_ms / 1000
+            speech["end"] = speech["end"] * frame_duration_ms / 1000
         else:
             # Convert frame indices to sample indices
-            speech['start'] = int(speech['start'] * frame_samples)
-            speech['end'] = int(speech['end'] * frame_samples)
+            speech["start"] = int(speech["start"] * frame_samples)
+            speech["end"] = int(speech["end"] * frame_samples)
 
     return speeches
 
@@ -477,7 +470,9 @@ class WhisperVadModel:
     Uses a Whisper model exported to ONNX for voice activity detection.
     """
 
-    def __init__(self, config: Optional[VadConfig] = None, progress_callback: Optional[Callable[[int, int, str], None]] = None):
+    def __init__(
+        self, config: VadConfig | None = None, progress_callback: Callable[[int, int, str], None] | None = None
+    ):
         self.config = config or VadConfig()
         self.wrapper = None
         self.progress_callback = progress_callback
@@ -510,8 +505,8 @@ class WhisperVadModel:
         min_silence_duration_ms: int = None,
         speech_pad_ms: int = None,
         neg_threshold: float = None,
-        **kwargs
-    ) -> List[Dict[str, Any]]:
+        **kwargs,
+    ) -> list[dict[str, Any]]:
         """
         Get speech timestamps using Whisper VAD.
         """
@@ -522,9 +517,15 @@ class WhisperVadModel:
         # Use provided parameters or defaults from config
         threshold = threshold if threshold is not None else self.config.threshold
         neg_threshold = neg_threshold if neg_threshold is not None else self.config.neg_threshold
-        min_speech_duration_ms = min_speech_duration_ms if min_speech_duration_ms is not None else self.config.min_speech_duration_ms
-        max_speech_duration_s = max_speech_duration_s if max_speech_duration_s is not None else self.config.max_speech_duration_s
-        min_silence_duration_ms = min_silence_duration_ms if min_silence_duration_ms is not None else self.config.min_silence_duration_ms
+        min_speech_duration_ms = (
+            min_speech_duration_ms if min_speech_duration_ms is not None else self.config.min_speech_duration_ms
+        )
+        max_speech_duration_s = (
+            max_speech_duration_s if max_speech_duration_s is not None else self.config.max_speech_duration_s
+        )
+        min_silence_duration_ms = (
+            min_silence_duration_ms if min_silence_duration_ms is not None else self.config.min_silence_duration_ms
+        )
         speech_pad_ms = speech_pad_ms if speech_pad_ms is not None else self.config.speech_pad_ms
 
         # Use ONNX model for speech detection
@@ -558,11 +559,16 @@ class VadModelManager:
     Provides a unified interface for VAD operations.
     """
 
-    def __init__(self, config: Optional[VadConfig] = None, ttl: int = 3600, progress_callback: Optional[Callable[[int, int, str], None]] = None):
+    def __init__(
+        self,
+        config: VadConfig | None = None,
+        ttl: int = 3600,
+        progress_callback: Callable[[int, int, str], None] | None = None,
+    ):
         self.config = config or VadConfig()
         self.ttl = ttl
         self.progress_callback = progress_callback
-        self._models: Dict[str, VadModel] = {}  # Instance variable, not class variable
+        self._models: dict[str, VadModel] = {}  # Instance variable, not class variable
         self._config = config
 
         # Register available models
@@ -583,12 +589,8 @@ class VadModelManager:
         return self._models.get(model_id, self._models["whisper_vad"])
 
     def get_speech_timestamps(
-        self,
-        model_id: str,
-        audio: np.ndarray,
-        sampling_rate: int = 16000,
-        **kwargs
-    ) -> List[Dict[str, Any]]:
+        self, model_id: str, audio: np.ndarray, sampling_rate: int = 16000, **kwargs
+    ) -> list[dict[str, Any]]:
         """
         Get speech timestamps using specified model.
 
@@ -605,7 +607,7 @@ class VadModelManager:
         return model.get_speech_timestamps(audio, sampling_rate, **kwargs)
 
     @classmethod
-    def get_available_models(cls) -> List[str]:
+    def get_available_models(cls) -> list[str]:
         """Get list of available VAD models"""
         # Since models are now instance variables, return the known model types
         return ["whisper_vad"]
@@ -615,6 +617,6 @@ class VadModelManager:
         if model_id is None:
             model_id = self.config.default_model
         model = self.get_model(model_id)
-        if hasattr(model, 'get_device'):
+        if hasattr(model, "get_device"):
             return model.get_device()
         return "Unknown"

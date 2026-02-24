@@ -1,0 +1,32 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "E402",   # module level import not at top (conditional imports pattern)
+    "SIM108", # use ternary operator (readability preference)
+    "B028",   # no explicit stacklevel (not critical for this project)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["faster_whisper_transwithai_chickenrice"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+allow_untyped_defs = true
+ignore_missing_imports = true
